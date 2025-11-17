@@ -28,6 +28,9 @@ const (
 
 	// DefaultWALDir is the default directory name for WAL files
 	DefaultWALDir = "wal"
+
+	// DefaultBlocksDir is the default directory name for block storage
+	DefaultBlocksDir = "data"
 )
 
 // TSDB is the main time-series database orchestrator.
@@ -35,12 +38,16 @@ const (
 type TSDB struct {
 	// Configuration
 	dataDir       string
+	blocksDir     string
 	flushInterval time.Duration
 
 	// Write path components
 	activeMemTable   *MemTable
 	flushingMemTable *MemTable
 	walWriter        *wal.WAL
+
+	// Storage components
+	blocks []*Block
 
 	// Synchronization
 	mu          sync.RWMutex
@@ -96,6 +103,12 @@ func Open(opts *Options) (*TSDB, error) {
 		return nil, fmt.Errorf("tsdb: failed to create data directory: %w", err)
 	}
 
+	// Create blocks directory
+	blocksDir := filepath.Join(opts.DataDir, DefaultBlocksDir)
+	if err := os.MkdirAll(blocksDir, 0755); err != nil {
+		return nil, fmt.Errorf("tsdb: failed to create blocks directory: %w", err)
+	}
+
 	// Open WAL
 	walDir := filepath.Join(opts.DataDir, DefaultWALDir)
 	walWriter, err := wal.Open(walDir, opts.WALOptions)
@@ -107,9 +120,11 @@ func Open(opts *Options) (*TSDB, error) {
 
 	db := &TSDB{
 		dataDir:       opts.DataDir,
+		blocksDir:     blocksDir,
 		flushInterval: opts.FlushInterval,
 		activeMemTable: NewMemTableWithSize(opts.MemTableSize),
 		walWriter:     walWriter,
+		blocks:        make([]*Block, 0),
 		flushChan:     make(chan struct{}, 1),
 		flusherDone:   make(chan struct{}),
 		ctx:           ctx,
@@ -204,10 +219,27 @@ func (db *TSDB) Query(seriesHash uint64, start, end int64) ([]series.Sample, err
 		}
 	}
 
-	// Merge results (in Phase 3, we'll also query disk blocks)
-	result := make([]series.Sample, 0, len(activeSamples)+len(flushingSamples))
+	// Query disk blocks
+	var blockSamples []series.Sample
+	db.mu.RLock()
+	blocks := db.blocks
+	db.mu.RUnlock()
+
+	for _, block := range blocks {
+		if block.Overlaps(start, end) {
+			samples, err := block.Query(seriesHash, start, end)
+			if err != nil {
+				return nil, fmt.Errorf("failed to query block %s: %w", block.ULID(), err)
+			}
+			blockSamples = append(blockSamples, samples...)
+		}
+	}
+
+	// Merge results from all sources
+	result := make([]series.Sample, 0, len(activeSamples)+len(flushingSamples)+len(blockSamples))
 	result = append(result, activeSamples...)
 	result = append(result, flushingSamples...)
+	result = append(result, blockSamples...)
 
 	return result, nil
 }
@@ -386,8 +418,22 @@ func (db *TSDB) flush() error {
 		maxTime,
 	)
 
-	// TODO: In Phase 3, write the MemTable to disk blocks
-	// For now, we just simulate the flush by clearing the MemTable
+	// Write MemTable to disk blocks
+	block, err := db.writeMemTableToBlocks(oldMemTable, minTime, maxTime)
+	if err != nil {
+		fmt.Printf("tsdb: failed to write blocks: %v\n", err)
+		// Continue with cleanup even if write fails
+	} else {
+		// Add block to tracking
+		db.mu.Lock()
+		db.blocks = append(db.blocks, block)
+		db.mu.Unlock()
+		fmt.Printf("tsdb: successfully wrote block %s (%d series, %d samples)\n",
+			block.ULID(),
+			block.Meta().Stats.NumSeries,
+			block.Meta().Stats.NumSamples,
+		)
+	}
 
 	// Log flush to WAL
 	if err := db.walWriter.LogFlush(maxTime); err != nil {
@@ -441,4 +487,67 @@ func (db *TSDB) MemTableStats() (active, flushing string) {
 	}
 
 	return active, flushing
+}
+
+// writeMemTableToBlocks writes the MemTable data to disk blocks.
+// Creates chunks for each series and writes them to a new block.
+func (db *TSDB) writeMemTableToBlocks(mt *MemTable, minTime, maxTime int64) (*Block, error) {
+	// Create new block
+	block, err := NewBlock(minTime, maxTime, db.blocksDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create block: %w", err)
+	}
+
+	// Get all series from MemTable
+	allSeriesHashes := mt.AllSeries()
+
+	// For each series, create chunks and write to block
+	for _, seriesHash := range allSeriesHashes {
+		// Query all samples for this series
+		samples, err := mt.Query(seriesHash, minTime, maxTime)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query series %v: %w", seriesHash, err)
+		}
+
+		if len(samples) == 0 {
+			continue
+		}
+
+		// Create chunks for this series (chunk every DefaultChunkSize samples)
+		for i := 0; i < len(samples); i += DefaultChunkSize {
+			chunk := NewChunk()
+
+			// Append samples to chunk
+			end := i + DefaultChunkSize
+			if end > len(samples) {
+				end = len(samples)
+			}
+
+			for j := i; j < end; j++ {
+				if err := chunk.Append(samples[j]); err != nil {
+					return nil, fmt.Errorf("failed to append sample to chunk: %w", err)
+				}
+			}
+
+			// Seal the chunk
+			if err := chunk.Seal(); err != nil {
+				return nil, fmt.Errorf("failed to seal chunk: %w", err)
+			}
+
+			// Write chunk to block
+			if err := block.WriteChunk(seriesHash, chunk); err != nil {
+				return nil, fmt.Errorf("failed to write chunk: %w", err)
+			}
+		}
+
+		// Increment series count for this block
+		block.IncrementSeriesCount()
+	}
+
+	// Write block metadata
+	if err := block.WriteMeta(); err != nil {
+		return nil, fmt.Errorf("failed to write block metadata: %w", err)
+	}
+
+	return block, nil
 }

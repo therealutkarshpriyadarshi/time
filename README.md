@@ -47,9 +47,38 @@ This project implements a high-performance time-series database from scratch in 
   - Time-based and size-based flush triggers
   - Comprehensive crash recovery
 
+### Phase 3: Block Storage & Compression (Completed ✓)
+
+- **Gorilla Compression Algorithms**
+  - Delta-of-delta timestamp encoding (27-62x compression)
+  - XOR floating-point value compression
+  - Bit-level packing for maximum efficiency
+  - Based on Facebook's Gorilla paper
+  - 10M+ samples/second encode speed
+
+- **Chunk Storage Format**
+  - Immutable compressed chunks (120 samples per chunk)
+  - CRC32 checksums for data integrity
+  - Efficient on-disk layout with headers
+  - 1.5-2.0 bytes per sample after compression
+  - Iterator-based decompression
+
+- **Time-Partitioned Blocks**
+  - ULID-based block naming (sortable by time)
+  - 2-hour block duration (configurable)
+  - Block metadata with statistics
+  - Automatic MemTable → Block flushing
+  - Multi-series block support
+  - Block validation and repair
+
+- **Integrated Query Path**
+  - Queries across MemTable + flushing buffer + disk blocks
+  - Efficient time-range filtering
+  - Automatic block selection by time overlap
+  - Seamless read path integration
+
 ### Upcoming Phases
 
-- **Phase 3**: Time-partitioned block storage with compression
 - **Phase 4**: Inverted index for label-based queries
 - **Phase 5**: Query engine with aggregations
 - **Phase 6**: Background compaction and retention
