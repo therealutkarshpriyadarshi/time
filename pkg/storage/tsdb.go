@@ -41,6 +41,7 @@ type TSDB struct {
 	activeMemTable   *MemTable
 	flushingMemTable *MemTable
 	walWriter        *wal.WAL
+	blockWriter      *BlockWriter
 
 	// Synchronization
 	mu          sync.RWMutex
@@ -106,14 +107,15 @@ func Open(opts *Options) (*TSDB, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	db := &TSDB{
-		dataDir:       opts.DataDir,
-		flushInterval: opts.FlushInterval,
+		dataDir:        opts.DataDir,
+		flushInterval:  opts.FlushInterval,
 		activeMemTable: NewMemTableWithSize(opts.MemTableSize),
-		walWriter:     walWriter,
-		flushChan:     make(chan struct{}, 1),
-		flusherDone:   make(chan struct{}),
-		ctx:           ctx,
-		cancel:        cancel,
+		walWriter:      walWriter,
+		blockWriter:    NewBlockWriter(opts.DataDir),
+		flushChan:      make(chan struct{}, 1),
+		flusherDone:    make(chan struct{}),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	// Recover from WAL
@@ -386,8 +388,17 @@ func (db *TSDB) flush() error {
 		maxTime,
 	)
 
-	// TODO: In Phase 3, write the MemTable to disk blocks
-	// For now, we just simulate the flush by clearing the MemTable
+	// Write MemTable to disk as a block
+	block, err := db.blockWriter.WriteMemTable(oldMemTable)
+	if err != nil {
+		return fmt.Errorf("failed to write block: %w", err)
+	}
+
+	fmt.Printf("tsdb: created block %s (size=%d bytes, compression=%.2fx)\n",
+		block.ULID.String(),
+		block.Size(),
+		float64(oldMemTable.SampleCount()*16)/float64(block.Size()),
+	)
 
 	// Log flush to WAL
 	if err := db.walWriter.LogFlush(maxTime); err != nil {
