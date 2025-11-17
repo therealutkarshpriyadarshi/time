@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/therealutkarshpriyadarshi/time/pkg/index"
 	"github.com/therealutkarshpriyadarshi/time/pkg/series"
 	"github.com/therealutkarshpriyadarshi/time/pkg/wal"
 )
@@ -541,4 +543,151 @@ func (db *TSDB) SetRetentionPolicy(policy RetentionPolicy) error {
 	}
 	db.retentionManager.SetPolicy(policy)
 	return nil
+}
+
+// GetAllLabels returns all unique label names across all series (Phase 7)
+func (db *TSDB) GetAllLabels() ([]string, error) {
+	if db.closed.Load() {
+		return nil, ErrClosed
+	}
+
+	db.mu.RLock()
+	activeMemTable := db.activeMemTable
+	flushingMemTable := db.flushingMemTable
+	db.mu.RUnlock()
+
+	labelSet := make(map[string]struct{})
+
+	// Collect labels from active MemTable
+	activeMemTable.mu.RLock()
+	for _, s := range activeMemTable.seriesMeta {
+		for labelName := range s.Labels {
+			labelSet[labelName] = struct{}{}
+		}
+	}
+	activeMemTable.mu.RUnlock()
+
+	// Collect labels from flushing MemTable
+	if flushingMemTable != nil {
+		flushingMemTable.mu.RLock()
+		for _, s := range flushingMemTable.seriesMeta {
+			for labelName := range s.Labels {
+				labelSet[labelName] = struct{}{}
+			}
+		}
+		flushingMemTable.mu.RUnlock()
+	}
+
+	// Convert to sorted slice
+	labels := make([]string, 0, len(labelSet))
+	for label := range labelSet {
+		labels = append(labels, label)
+	}
+
+	// Sort for consistent output
+	sort.Strings(labels)
+
+	return labels, nil
+}
+
+// GetLabelValues returns all unique values for a specific label (Phase 7)
+func (db *TSDB) GetLabelValues(labelName string) ([]string, error) {
+	if db.closed.Load() {
+		return nil, ErrClosed
+	}
+
+	db.mu.RLock()
+	activeMemTable := db.activeMemTable
+	flushingMemTable := db.flushingMemTable
+	db.mu.RUnlock()
+
+	valueSet := make(map[string]struct{})
+
+	// Collect values from active MemTable
+	activeMemTable.mu.RLock()
+	for _, s := range activeMemTable.seriesMeta {
+		if value, ok := s.Labels[labelName]; ok {
+			valueSet[value] = struct{}{}
+		}
+	}
+	activeMemTable.mu.RUnlock()
+
+	// Collect values from flushing MemTable
+	if flushingMemTable != nil {
+		flushingMemTable.mu.RLock()
+		for _, s := range flushingMemTable.seriesMeta {
+			if value, ok := s.Labels[labelName]; ok {
+				valueSet[value] = struct{}{}
+			}
+		}
+		flushingMemTable.mu.RUnlock()
+	}
+
+	// Convert to sorted slice
+	values := make([]string, 0, len(valueSet))
+	for value := range valueSet {
+		values = append(values, value)
+	}
+
+	// Sort for consistent output
+	sort.Strings(values)
+
+	return values, nil
+}
+
+// GetSeries returns all series that match the given label matchers (Phase 7)
+func (db *TSDB) GetSeries(matchers index.Matchers) ([]map[string]string, error) {
+	if db.closed.Load() {
+		return nil, ErrClosed
+	}
+
+	db.mu.RLock()
+	activeMemTable := db.activeMemTable
+	flushingMemTable := db.flushingMemTable
+	db.mu.RUnlock()
+
+	seriesMap := make(map[uint64]map[string]string) // Use hash to deduplicate
+
+	// Collect matching series from active MemTable
+	activeMemTable.mu.RLock()
+	for _, s := range activeMemTable.seriesMeta {
+		if matchLabels(s.Labels, matchers) {
+			seriesMap[s.Hash] = s.Labels
+		}
+	}
+	activeMemTable.mu.RUnlock()
+
+	// Collect matching series from flushing MemTable
+	if flushingMemTable != nil {
+		flushingMemTable.mu.RLock()
+		for _, s := range flushingMemTable.seriesMeta {
+			if matchLabels(s.Labels, matchers) {
+				seriesMap[s.Hash] = s.Labels
+			}
+		}
+		flushingMemTable.mu.RUnlock()
+	}
+
+	// Convert to slice
+	result := make([]map[string]string, 0, len(seriesMap))
+	for _, labels := range seriesMap {
+		result = append(result, labels)
+	}
+
+	return result, nil
+}
+
+// matchLabels checks if the given labels match all matchers
+func matchLabels(labels map[string]string, matchers index.Matchers) bool {
+	if len(matchers) == 0 {
+		return true // Empty matchers match everything
+	}
+
+	for _, matcher := range matchers {
+		if !matcher.Matches(labels) {
+			return false
+		}
+	}
+
+	return true
 }

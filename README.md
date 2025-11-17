@@ -120,9 +120,33 @@ This project implements a high-performance time-series database from scratch in 
   - Background cleanup goroutine
   - Runtime policy updates
 
+### Phase 7: HTTP API & Client (Completed ✓)
+
+- **REST API Server**
+  - Prometheus-compatible remote write/read
+  - Instant and range query endpoints
+  - Metadata endpoints (labels, series)
+  - Health and status endpoints
+  - JSON response formatting
+  - Comprehensive error handling
+
+- **Go Client Library**
+  - Simple, idiomatic Go API
+  - Write metrics with batching
+  - Instant and range queries
+  - Metadata queries
+  - Connection pooling and timeouts
+  - Full test coverage
+
+- **CLI Tool**
+  - `tsdb start` - Start server with configuration
+  - `tsdb write` - Write metrics from command line
+  - `tsdb query` - Query data (instant and range)
+  - `tsdb inspect` - View status, labels, and metadata
+  - User-friendly output formatting
+
 ### Upcoming Phases
 
-- **Phase 7**: HTTP API and client libraries
 - **Phase 8**: Performance optimization and production hardening
 
 ## Quick Start
@@ -151,7 +175,92 @@ go test -bench=. ./benchmarks/
 
 ## Usage
 
-### Basic Example
+### Using the HTTP API (Recommended)
+
+#### Start the Server
+
+```bash
+# Build and run the CLI
+go build -o tsdb ./cmd/tsdb
+./tsdb start --listen=:8080 --data-dir=./data --retention=30d
+```
+
+#### Using the Go Client Library
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    "github.com/therealutkarshpriyadarshi/time/pkg/client"
+)
+
+func main() {
+    // Create client
+    c := client.NewClient("http://localhost:8080")
+
+    // Write metrics
+    err := c.Write(context.Background(), []client.Metric{
+        {
+            Labels: map[string]string{
+                "__name__": "cpu_usage",
+                "host":     "server1",
+            },
+            Timestamp: time.Now(),
+            Value:     0.85,
+        },
+    })
+    if err != nil {
+        panic(err)
+    }
+
+    // Query data
+    results, err := c.QueryRange(
+        context.Background(),
+        `{__name__="cpu_usage",host="server1"}`,
+        time.Now().Add(-1*time.Hour),
+        time.Now(),
+        1*time.Minute,
+    )
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Printf("Found %d series\n", len(results))
+}
+```
+
+#### Using the CLI
+
+```bash
+# Write a metric
+tsdb write 'cpu_usage{host="server1"}' 0.85
+
+# Query metrics
+tsdb query 'cpu_usage{host="server1"}' --start=-1h --end=now
+
+# Inspect status
+tsdb inspect status
+```
+
+#### Using curl
+
+```bash
+# Write metrics
+curl -X POST http://localhost:8080/api/v1/write \
+  -H "Content-Type: application/json" \
+  -d '{"timeseries":[{"labels":[{"name":"__name__","value":"cpu_usage"}],"samples":[{"timestamp":1640000000000,"value":0.75}]}]}'
+
+# Query metrics
+curl 'http://localhost:8080/api/v1/query_range?query={__name__="cpu_usage"}&start=0&end=9999999999999'
+```
+
+### Direct Database Usage
+
+For embedded usage without HTTP API:
 
 ```go
 package main
@@ -170,18 +279,16 @@ func main() {
     }
     defer db.Close()
 
-    // Create a series with labels
+    // Create a series
     s := series.NewSeries(map[string]string{
         "__name__": "cpu_usage",
         "host":     "server1",
-        "region":   "us-west",
     })
 
-    // Insert samples (automatically written to WAL + MemTable)
+    // Insert samples
     samples := []series.Sample{
         {Timestamp: 1000, Value: 0.75},
         {Timestamp: 2000, Value: 0.82},
-        {Timestamp: 3000, Value: 0.68},
     }
 
     err = db.Insert(s, samples)
@@ -189,14 +296,9 @@ func main() {
         panic(err)
     }
 
-    // Query samples
-    results, _ := db.Query(s.Hash, 0, 0)
-    fmt.Printf("Retrieved %d samples\n", len(results))
-
     // Get statistics
     stats := db.GetStatsSnapshot()
     fmt.Printf("Total samples: %d\n", stats.TotalSamples)
-    fmt.Printf("Flush count: %d\n", stats.FlushCount)
 }
 ```
 
@@ -293,7 +395,12 @@ Phase 1 achieves **80%+** test coverage with comprehensive unit tests for:
 ```
 time/
 ├── cmd/
-│   └── tsdb/              # Main binary & CLI (coming soon)
+│   └── tsdb/              # ✓ CLI tool (Phase 7)
+│       ├── main.go        # ✓ CLI entry point
+│       ├── start.go       # ✓ Start server command
+│       ├── write.go       # ✓ Write command
+│       ├── query.go       # ✓ Query command
+│       └── inspect.go     # ✓ Inspect command
 ├── pkg/
 │   ├── storage/           # Storage engine core
 │   │   ├── memtable.go    # ✓ In-memory buffer
@@ -312,9 +419,15 @@ time/
 │   ├── series/            # ✓ Time-series management
 │   │   ├── types.go       # ✓ Core data structures
 │   │   └── types_test.go  # ✓ Series tests
-│   ├── index/             # Label indexing (Phase 4)
-│   ├── query/             # Query engine (Phase 5)
-│   └── api/               # HTTP API (Phase 7)
+│   ├── index/             # ✓ Label indexing (Phase 4)
+│   ├── query/             # ✓ Query engine (Phase 5)
+│   ├── api/               # ✓ HTTP API (Phase 7)
+│   │   ├── server.go      # ✓ API server
+│   │   ├── types.go       # ✓ API types
+│   │   └── server_test.go # ✓ API tests
+│   └── client/            # ✓ Go client library (Phase 7)
+│       ├── client.go      # ✓ Client implementation
+│       └── client_test.go # ✓ Client tests
 ├── internal/
 │   ├── bitmap/            # Roaring bitmap utilities
 │   └── util/              # Helper functions
@@ -322,7 +435,10 @@ time/
 │   ├── *_bench_test.go    # ✓ Comprehensive benchmarks
 ├── docs/                  # ✓ Documentation
 │   ├── DESIGN.md          # ✓ Architecture docs
-│   └── COMPRESSION.md     # ✓ Compression explained
+│   ├── COMPRESSION.md     # ✓ Compression explained
+│   ├── QUERY_ENGINE.md    # ✓ Query engine docs
+│   ├── COMPACTION_AND_RETENTION.md  # ✓ Background ops docs
+│   └── API.md             # ✓ HTTP API reference (Phase 7)
 ├── .github/workflows/     # ✓ CI/CD pipelines
 ├── go.mod
 ├── README.md              # ✓ This file
@@ -367,7 +483,7 @@ go test -bench=. ./benchmarks/
 
 See [ROADMAP.md](ROADMAP.md) for detailed project timeline and milestones.
 
-**Current Status**: Phase 6 Complete ✓
+**Current Status**: Phase 7 Complete ✓
 
 - ✅ Phase 1: Foundation & Core Data Structures (Weeks 1-2)
 - ✅ Phase 2: Write Path - WAL & Ingestion (Weeks 2-3)
@@ -375,7 +491,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed project timeline and milestones.
 - ✅ Phase 4: Indexing - Fast Lookups (Weeks 5-6)
 - ✅ Phase 5: Query Engine (Weeks 6-8)
 - ✅ Phase 6: Background Operations (Weeks 8-9)
-- 📋 Phase 7: HTTP API & Client (Weeks 9-10)
+- ✅ Phase 7: HTTP API & Client (Weeks 9-10)
 - 📋 Phase 8: Production Readiness (Weeks 10-12)
 
 ## Documentation
@@ -385,7 +501,8 @@ See [ROADMAP.md](ROADMAP.md) for detailed project timeline and milestones.
 - [docs/COMPRESSION.md](docs/COMPRESSION.md) - Compression algorithms explained
 - [docs/QUERY_ENGINE.md](docs/QUERY_ENGINE.md) - Query engine and aggregation functions
 - [docs/COMPACTION_AND_RETENTION.md](docs/COMPACTION_AND_RETENTION.md) - Background operations (Phase 6)
-- [docs/API.md](docs/API.md) - HTTP API reference (coming in Phase 7)
+- [docs/API.md](docs/API.md) - HTTP API reference (Phase 7)
+- [examples/](examples/) - Client library usage examples
 
 ## Technical Highlights
 
