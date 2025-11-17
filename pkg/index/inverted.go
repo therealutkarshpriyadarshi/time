@@ -190,7 +190,6 @@ func (idx *InvertedIndex) lookupRegexp(m *Matcher) *roaring.Bitmap {
 // lookupNotRegexp finds series where label value doesn't match the regex.
 func (idx *InvertedIndex) lookupNotRegexp(m *Matcher) *roaring.Bitmap {
 	matched := idx.lookupRegexp(m)
-	allWithLabel := idx.allSeriesWithLabel(m.Name)
 
 	// Result = all series - series matching the regex
 	// This gives us series without the label OR with a non-matching value

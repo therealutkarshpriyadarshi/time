@@ -68,10 +68,44 @@ This project implements a high-performance time-series database from scratch in 
   - Automatic block creation on flush
   - 29x+ compression for typical data
 
+### Phase 4: Indexing - Fast Series Lookup (Completed ✓)
+
+- **Inverted Index**
+  - Fast label-based queries with roaring bitmaps
+  - Support for all matcher types (=, !=, =~, !~)
+  - Efficient posting list storage
+  - Index persistence to disk
+  - <10ms query time for 10M series
+
+- **Series Registry**
+  - Series ID allocation and management
+  - Series metadata storage
+  - Hash-to-ID mapping
+  - Cardinality tracking
+
+### Phase 5: Query Engine (Completed ✓)
+
+- **Time-Range Queries**
+  - Efficient data retrieval across MemTable and blocks
+  - SeriesIterator interface for streaming
+  - Automatic merging and deduplication
+  - <100ms for 1-week queries with 1K series
+
+- **Aggregation Functions**
+  - sum, avg, max, min, count, stddev, stdvar
+  - Time-bucketing with configurable step
+  - Group-by and without label support
+  - Efficient aggregation algorithms
+
+- **Time-Series Functions**
+  - rate() - per-second rate for counters
+  - increase() - total increase over range
+  - delta() - difference between values
+  - derivative() - per-second rate of change
+  - Counter reset handling
+
 ### Upcoming Phases
 
-- **Phase 4**: Inverted index for label-based queries
-- **Phase 5**: Query engine with aggregations
 - **Phase 6**: Background compaction and retention
 - **Phase 7**: HTTP API and client libraries
 - **Phase 8**: Performance optimization and production hardening
@@ -318,13 +352,13 @@ go test -bench=. ./benchmarks/
 
 See [ROADMAP.md](ROADMAP.md) for detailed project timeline and milestones.
 
-**Current Status**: Phase 3 Complete ✓
+**Current Status**: Phase 5 Complete ✓
 
 - ✅ Phase 1: Foundation & Core Data Structures (Weeks 1-2)
 - ✅ Phase 2: Write Path - WAL & Ingestion (Weeks 2-3)
 - ✅ Phase 3: Storage Engine - Persistence (Weeks 3-5)
-- 📋 Phase 4: Indexing - Fast Lookups (Weeks 5-6)
-- 📋 Phase 5: Query Engine (Weeks 6-8)
+- ✅ Phase 4: Indexing - Fast Lookups (Weeks 5-6)
+- ✅ Phase 5: Query Engine (Weeks 6-8)
 - 📋 Phase 6: Background Operations (Weeks 8-9)
 - 📋 Phase 7: HTTP API & Client (Weeks 9-10)
 - 📋 Phase 8: Production Readiness (Weeks 10-12)
@@ -334,6 +368,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed project timeline and milestones.
 - [ROADMAP.md](ROADMAP.md) - Detailed project roadmap and milestones
 - [docs/DESIGN.md](docs/DESIGN.md) - Architecture and design decisions
 - [docs/COMPRESSION.md](docs/COMPRESSION.md) - Compression algorithms explained
+- [docs/QUERY_ENGINE.md](docs/QUERY_ENGINE.md) - Query engine and aggregation functions
 - [docs/API.md](docs/API.md) - HTTP API reference (coming in Phase 7)
 
 ## Technical Highlights
@@ -346,7 +381,9 @@ See [ROADMAP.md](ROADMAP.md) for detailed project timeline and milestones.
 - **Gorilla Compression**: Delta-of-delta and XOR encoding (20-30x compression)
 - **Lazy Loading**: On-demand chunk loading from disk
 - **Write-Ahead Log**: Crash recovery with checksummed entries
-- **Inverted Index**: Fast label-based queries (coming in Phase 4)
+- **Inverted Index**: Fast label-based queries with roaring bitmaps
+- **Query Engine**: Time-range queries, aggregations, and rate calculations
+- **Iterator Pattern**: Memory-efficient streaming of query results
 - **LSM-inspired Compaction**: Background optimization (coming in Phase 6)
 
 ### Inspiration
