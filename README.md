@@ -104,9 +104,24 @@ This project implements a high-performance time-series database from scratch in 
   - derivative() - per-second rate of change
   - Counter reset handling
 
+### Phase 6: Background Operations (Completed ✓)
+
+- **Compaction**
+  - Tiered compaction strategy (3 levels)
+  - Automatic block merging with deduplication
+  - Background compactor goroutine
+  - Concurrent read support during compaction
+  - <10 seconds for 10GB compaction
+
+- **Retention Policy**
+  - Configurable data retention (default: 30 days)
+  - Automatic garbage collection
+  - Block deletion based on age
+  - Background cleanup goroutine
+  - Runtime policy updates
+
 ### Upcoming Phases
 
-- **Phase 6**: Background compaction and retention
 - **Phase 7**: HTTP API and client libraries
 - **Phase 8**: Performance optimization and production hardening
 
@@ -352,14 +367,14 @@ go test -bench=. ./benchmarks/
 
 See [ROADMAP.md](ROADMAP.md) for detailed project timeline and milestones.
 
-**Current Status**: Phase 5 Complete ✓
+**Current Status**: Phase 6 Complete ✓
 
 - ✅ Phase 1: Foundation & Core Data Structures (Weeks 1-2)
 - ✅ Phase 2: Write Path - WAL & Ingestion (Weeks 2-3)
 - ✅ Phase 3: Storage Engine - Persistence (Weeks 3-5)
 - ✅ Phase 4: Indexing - Fast Lookups (Weeks 5-6)
 - ✅ Phase 5: Query Engine (Weeks 6-8)
-- 📋 Phase 6: Background Operations (Weeks 8-9)
+- ✅ Phase 6: Background Operations (Weeks 8-9)
 - 📋 Phase 7: HTTP API & Client (Weeks 9-10)
 - 📋 Phase 8: Production Readiness (Weeks 10-12)
 
@@ -369,6 +384,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed project timeline and milestones.
 - [docs/DESIGN.md](docs/DESIGN.md) - Architecture and design decisions
 - [docs/COMPRESSION.md](docs/COMPRESSION.md) - Compression algorithms explained
 - [docs/QUERY_ENGINE.md](docs/QUERY_ENGINE.md) - Query engine and aggregation functions
+- [docs/COMPACTION_AND_RETENTION.md](docs/COMPACTION_AND_RETENTION.md) - Background operations (Phase 6)
 - [docs/API.md](docs/API.md) - HTTP API reference (coming in Phase 7)
 
 ## Technical Highlights
