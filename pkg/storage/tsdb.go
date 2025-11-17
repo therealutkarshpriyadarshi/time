@@ -43,6 +43,10 @@ type TSDB struct {
 	walWriter        *wal.WAL
 	blockWriter      *BlockWriter
 
+	// Background operations (Phase 6)
+	compactor        *Compactor
+	retentionManager *RetentionManager
+
 	// Synchronization
 	mu          sync.RWMutex
 	flushMu     sync.Mutex
@@ -70,19 +74,27 @@ type Stats struct {
 
 // Options configures the TSDB
 type Options struct {
-	DataDir       string
-	FlushInterval time.Duration
-	WALOptions    *wal.Options
-	MemTableSize  int64
+	DataDir            string
+	FlushInterval      time.Duration
+	WALOptions         *wal.Options
+	MemTableSize       int64
+	EnableCompaction   bool
+	CompactionInterval time.Duration
+	EnableRetention    bool
+	RetentionPeriod    time.Duration
 }
 
 // DefaultOptions returns default TSDB options
 func DefaultOptions(dataDir string) *Options {
 	return &Options{
-		DataDir:       dataDir,
-		FlushInterval: DefaultFlushInterval,
-		WALOptions:    wal.DefaultOptions(),
-		MemTableSize:  DefaultMaxSize,
+		DataDir:            dataDir,
+		FlushInterval:      DefaultFlushInterval,
+		WALOptions:         wal.DefaultOptions(),
+		MemTableSize:       DefaultMaxSize,
+		EnableCompaction:   true,
+		CompactionInterval: DefaultCompactionInterval,
+		EnableRetention:    true,
+		RetentionPeriod:    DefaultRetentionPeriod,
 	}
 }
 
@@ -122,6 +134,31 @@ func Open(opts *Options) (*TSDB, error) {
 	if err := db.recover(); err != nil {
 		walWriter.Close()
 		return nil, fmt.Errorf("tsdb: failed to recover: %w", err)
+	}
+
+	// Initialize compactor (Phase 6)
+	if opts.EnableCompaction {
+		compactorOpts := &CompactorOptions{
+			DataDir:     opts.DataDir,
+			Interval:    opts.CompactionInterval,
+			Concurrency: 1,
+		}
+		db.compactor = NewCompactor(compactorOpts)
+		go db.compactor.Run()
+	}
+
+	// Initialize retention manager (Phase 6)
+	if opts.EnableRetention && db.compactor != nil {
+		retentionOpts := &RetentionManagerOptions{
+			Policy: RetentionPolicy{
+				MaxAge:     opts.RetentionPeriod,
+				MinSamples: 0,
+				Enabled:    true,
+			},
+			Interval: DefaultRetentionCheckInterval,
+		}
+		db.retentionManager = NewRetentionManager(db.compactor, retentionOpts)
+		go db.retentionManager.Run()
 	}
 
 	// Start background flusher
@@ -277,6 +314,14 @@ type StatsSnapshot struct {
 func (db *TSDB) Close() error {
 	if !db.closed.CompareAndSwap(false, true) {
 		return nil // Already closed
+	}
+
+	// Stop background operations (Phase 6)
+	if db.compactor != nil {
+		db.compactor.Stop()
+	}
+	if db.retentionManager != nil {
+		db.retentionManager.Stop()
 	}
 
 	// Cancel background operations
@@ -452,4 +497,48 @@ func (db *TSDB) MemTableStats() (active, flushing string) {
 	}
 
 	return active, flushing
+}
+
+// GetCompactionStats returns compaction statistics (Phase 6)
+func (db *TSDB) GetCompactionStats() *CompactionStats {
+	if db.compactor == nil {
+		return nil
+	}
+	stats := db.compactor.GetStats()
+	return &stats
+}
+
+// GetRetentionStats returns retention statistics (Phase 6)
+func (db *TSDB) GetRetentionStats() *RetentionStats {
+	if db.retentionManager == nil {
+		return nil
+	}
+	stats := db.retentionManager.GetStats()
+	return &stats
+}
+
+// TriggerCompaction manually triggers compaction (Phase 6)
+func (db *TSDB) TriggerCompaction() error {
+	if db.compactor == nil {
+		return fmt.Errorf("compaction not enabled")
+	}
+	return db.compactor.CompactNow()
+}
+
+// GetRetentionPolicy returns the current retention policy (Phase 6)
+func (db *TSDB) GetRetentionPolicy() *RetentionPolicy {
+	if db.retentionManager == nil {
+		return nil
+	}
+	policy := db.retentionManager.GetPolicy()
+	return &policy
+}
+
+// SetRetentionPolicy updates the retention policy (Phase 6)
+func (db *TSDB) SetRetentionPolicy(policy RetentionPolicy) error {
+	if db.retentionManager == nil {
+		return fmt.Errorf("retention not enabled")
+	}
+	db.retentionManager.SetPolicy(policy)
+	return nil
 }
