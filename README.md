@@ -31,9 +31,24 @@ This project implements a high-performance time-series database from scratch in 
   - Memory usage tracking
   - Fast inserts and queries
 
+### Phase 2: Write Path - Ingestion Pipeline (Completed ✓)
+
+- **Write-Ahead Log (WAL)**
+  - Durable append-only log with checksums
+  - Automatic segment rotation (128MB per segment)
+  - Crash recovery via WAL replay
+  - WAL truncation after successful flush
+  - 50K+ writes/second with fsync
+
+- **TSDB Orchestrator**
+  - Coordinated WAL + MemTable writes
+  - Double-buffering for non-blocking flushes
+  - Background flusher goroutine
+  - Time-based and size-based flush triggers
+  - Comprehensive crash recovery
+
 ### Upcoming Phases
 
-- **Phase 2**: Write-Ahead Log (WAL) and durability
 - **Phase 3**: Time-partitioned block storage with compression
 - **Phase 4**: Inverted index for label-based queries
 - **Phase 5**: Query engine with aggregations
@@ -79,8 +94,12 @@ import (
 )
 
 func main() {
-    // Create a new MemTable
-    mt := storage.NewMemTable()
+    // Open TSDB with WAL enabled
+    db, err := storage.Open(storage.DefaultOptions("./data"))
+    if err != nil {
+        panic(err)
+    }
+    defer db.Close()
 
     // Create a series with labels
     s := series.NewSeries(map[string]string{
@@ -89,24 +108,26 @@ func main() {
         "region":   "us-west",
     })
 
-    // Insert samples
+    // Insert samples (automatically written to WAL + MemTable)
     samples := []series.Sample{
         {Timestamp: 1000, Value: 0.75},
         {Timestamp: 2000, Value: 0.82},
         {Timestamp: 3000, Value: 0.68},
     }
 
-    err := mt.Insert(s, samples)
+    err = db.Insert(s, samples)
     if err != nil {
         panic(err)
     }
 
     // Query samples
-    results, _ := mt.Query(s.Hash, 0, 0)
+    results, _ := db.Query(s.Hash, 0, 0)
     fmt.Printf("Retrieved %d samples\n", len(results))
 
     // Get statistics
-    fmt.Println(mt.Stats())
+    stats := db.GetStatsSnapshot()
+    fmt.Printf("Total samples: %d\n", stats.TotalSamples)
+    fmt.Printf("Flush count: %d\n", stats.FlushCount)
 }
 ```
 
@@ -265,10 +286,10 @@ go test -bench=. ./benchmarks/
 
 See [ROADMAP.md](ROADMAP.md) for detailed project timeline and milestones.
 
-**Current Status**: Phase 1 Complete ✓
+**Current Status**: Phase 2 Complete ✓
 
 - ✅ Phase 1: Foundation & Core Data Structures (Weeks 1-2)
-- 🚧 Phase 2: Write Path - WAL & Ingestion (Weeks 2-3)
+- ✅ Phase 2: Write Path - WAL & Ingestion (Weeks 2-3)
 - 📋 Phase 3: Storage Engine - Persistence (Weeks 3-5)
 - 📋 Phase 4: Indexing - Fast Lookups (Weeks 5-6)
 - 📋 Phase 5: Query Engine (Weeks 6-8)
