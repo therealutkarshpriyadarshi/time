@@ -372,18 +372,18 @@ func (c *Chunk) UnmarshalBinary(data []byte) error
 
 ---
 
-## Phase 4: Indexing - Fast Series Lookup (Week 5-6)
+## Phase 4: Indexing - Fast Series Lookup (Week 5-6) ✅ COMPLETED
 
 ### Milestone 4.1: Inverted Index
 **Goal**: Enable fast label-based queries (e.g., `{host="server1", metric="cpu"}`)
 
 **Tasks**:
-- [ ] Design inverted index structure
-- [ ] Implement posting list storage
-- [ ] Add roaring bitmap for set operations
-- [ ] Implement label matchers (=, !=, =~, !~)
-- [ ] Optimize for high-cardinality labels
-- [ ] Add index persistence to disk
+- [x] Design inverted index structure
+- [x] Implement posting list storage
+- [x] Add roaring bitmap for set operations
+- [x] Implement label matchers (=, !=, =~, !~)
+- [x] Optimize for high-cardinality labels
+- [x] Add index persistence to disk
 
 **Index Structure**:
 ```
@@ -436,12 +436,12 @@ seriesIDs := idx.Lookup([]LabelMatcher{matcher1, matcher2})
 **Goal**: Compact series references and efficient storage
 
 **Tasks**:
-- [ ] Implement series ID allocator (monotonic counter)
-- [ ] Create series metadata storage
-- [ ] Add series hash → ID mapping
-- [ ] Implement series lookup cache (LRU)
-- [ ] Add series cardinality limits
-- [ ] Track series churn rate
+- [x] Implement series ID allocator (monotonic counter)
+- [x] Create series metadata storage
+- [x] Add series hash → ID mapping
+- [x] Implement series lookup cache (LRU)
+- [x] Add series cardinality limits
+- [x] Track series churn rate
 
 **Code to implement**:
 
