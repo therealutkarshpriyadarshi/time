@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # TSDB Server
+  tsdb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tsdb
+    ports:
+      - "8080:8080"
+    volumes:
+      - tsdb-data:/data
+    environment:
+      - TSDB_LOG_LEVEL=info
+      - TSDB_RETENTION=30d
+      - TSDB_MEMTABLE_SIZE=268435456  # 256 MB
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - tsdb-network
+
+  # Prometheus (for scraping TSDB metrics)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: tsdb-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./examples/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    restart: unless-stopped
+    depends_on:
+      - tsdb
+    networks:
+      - tsdb-network
+
+  # Grafana (for visualization)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: tsdb-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./examples/grafana-datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - tsdb
+    networks:
+      - tsdb-network
+
+  # Load generator (optional - for testing)
+  load-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tsdb-load-generator
+    entrypoint: ["tsdb", "write"]
+    command:
+      - "--addr=http://tsdb:8080"
+      - "--rate=1000"
+      - "--duration=0"
+    depends_on:
+      - tsdb
+    networks:
+      - tsdb-network
+    profiles:
+      - testing
+
+volumes:
+  tsdb-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  tsdb-network:
+    driver: bridge

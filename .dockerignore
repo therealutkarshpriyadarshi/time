@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+.github
+
+# Documentation
+*.md
+docs/
+examples/
+
+# Build artifacts
+tsdb
+*.prof
+*.test
+*.out
+
+# Data directories
+data/
+wal/
+blocks/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# CI/CD
+.travis.yml
+.gitlab-ci.yml
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Tests
+*_test.go
+tests/
+benchmarks/
+testdata/
